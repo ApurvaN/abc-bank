@@ -1,73 +1,144 @@
 package com.abc;
 
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
+
+import com.abc.Transaction.TransactionType;
+import com.abc.Utils.DateProvider;
+import com.abc.exception.AccountOperationException;
 
 public class Account {
 
-    public static final int CHECKING = 0;
-    public static final int SAVINGS = 1;
-    public static final int MAXI_SAVINGS = 2;
+	/*enum added to remove hard coding of the account types with numbers 0,1,2
+	 */
+	enum AccountType{
+		CHECKING,SAVINGS,MAXI_SAVINGS;
+	}
+	
+   
+	private final AccountType accountType;
+    private List<Transaction> transactions;
+    private Date lastPaymentDate;
 
-    private final int accountType;
-    public List<Transaction> transactions;
+    public void setLastPaymentDate(Date lastPaymentDate) {
+		this.lastPaymentDate = lastPaymentDate;
+	}
 
-    public Account(int accountType) {
+	public Date getLastPaymentDate() {
+		return lastPaymentDate;
+	}
+
+	public List<Transaction> getTransactions() {
+		return transactions;
+	}
+
+	public Account(AccountType accountType) {
         this.accountType = accountType;
         this.transactions = new ArrayList<Transaction>();
+        //Setting up the last payment date to account opening day.
+        this.lastPaymentDate=DateProvider.getInstance().now();
     }
 
-    public void deposit(double amount) {
+    public void deposit(double amount) throws AccountOperationException {
         if (amount <= 0) {
-            throw new IllegalArgumentException("amount must be greater than zero");
+            throw new AccountOperationException("amount must be greater than zero");
         } else {
-            transactions.add(new Transaction(amount));
+            transactions.add(new Transaction(amount,TransactionType.DEPOSIT));
         }
     }
 
-public void withdraw(double amount) {
+    public void withdraw(double amount) throws AccountOperationException {
+	
     if (amount <= 0) {
-        throw new IllegalArgumentException("amount must be greater than zero");
-    } else {
-        transactions.add(new Transaction(-amount));
+        throw new AccountOperationException("amount must be greater than zero");
+    }
+    else if(amount>sumTransactions()){
+    	  throw new AccountOperationException("amount exceeds available balance");
+    }
+    else {
+        transactions.add(new Transaction(-amount,TransactionType.WITHDRAW));
     }
 }
 
-    public double interestEarned() {
+    /*This method calculates the daily interest including weekends
+    * Formula - Principal Balance X (Annual Interest Rate* / Year Count**) X Number of Days Since Last Payment
+    */
+    public double dailyInterestEarned() {
         double amount = sumTransactions();
+        int noOfDaysSinceLastPayement=(int)((DateProvider.getInstance().now().getTime() - getLastPaymentDate().getTime()) 
+                / (1000 * 60 * 60 * 24) );
+        
         switch(accountType){
             case SAVINGS:
                 if (amount <= 1000)
-                    return amount * 0.001;
+                    return amount * (0.001/365) * noOfDaysSinceLastPayement;
                 else
-                    return 1 + (amount-1000) * 0.002;
-//            case SUPER_SAVINGS:
-//                if (amount <= 4000)
-//                    return 20;
+                    return amount * (0.002/365) * noOfDaysSinceLastPayement;
             case MAXI_SAVINGS:
-                if (amount <= 1000)
-                    return amount * 0.02;
-                if (amount <= 2000)
-                    return 20 + (amount-1000) * 0.05;
-                return 70 + (amount-2000) * 0.1;
+            	Transaction lastWithdrawTransaction=getLastWithdrawTransaction();
+            	if(lastWithdrawTransaction==null)
+            		return  amount * (0.05/365) * noOfDaysSinceLastPayement;
+            	
+               	int lastTransactionDay=(int)((DateProvider.getInstance().now().getTime() - lastWithdrawTransaction.getTransactionDate().getTime()) 
+                        / (1000 * 60 * 60 * 24) );
+               	
+               	if(lastTransactionDay>10)
+               		return  amount * (0.05/365) * noOfDaysSinceLastPayement;
+               	else
+               		return  amount * (0.001/365) * noOfDaysSinceLastPayement;
+            	
             default:
-                return amount * 0.001;
+                return amount * (0.001/365) * noOfDaysSinceLastPayement;
         }
     }
 
-    public double sumTransactions() {
-       return checkIfTransactionsExist(true);
-    }
+    private Transaction getLastWithdrawTransaction() {
+    	Transaction lastTransaction= null;
+    	
+    	int lastIndex=transactions.size()-1;
+    	lastTransaction = transactions.get(lastIndex);
+    	while(lastIndex>=0){
+	    	if(lastTransaction.getTransactionType()==TransactionType.WITHDRAW)
+	    	{
+	    		return lastTransaction;
+	    	}
+	    	else
+	    	{
+	    		lastIndex--;
+	    	}	
+    	}
+    	return null;
+    	
+	}
 
-    private double checkIfTransactionsExist(boolean checkAll) {
-        double amount = 0.0;
+	/*Removing checkIfTransactionsExist separate method call , the call not doing anything additional
+     *  other than just forwarding the call.
+     *  Removing parameter checkAll , its not used*/
+    public double sumTransactions() {
+    	double amount = 0.0;
         for (Transaction t: transactions)
-            amount += t.amount;
+            amount += t.getAmount();
         return amount;
     }
 
-    public int getAccountType() {
+   
+    public AccountType getAccountType() {
         return accountType;
     }
+    /*
+     * This method is added , which will be called during the interest payments for the accounts.
+     * This will set the lastPaymentDate.
+     * lastPayment date will be used to calculate the daily interest rates 
+    */
+    public boolean payIntrest(double amount,Date date){
+    	transactions.add(new Transaction(amount,TransactionType.DEPOSIT));
+    	if(date==null)
+    		setLastPaymentDate(DateProvider.getInstance().now());
+    	else
+    		setLastPaymentDate(date);
+    	return true;
+    }
 
+    
 }
